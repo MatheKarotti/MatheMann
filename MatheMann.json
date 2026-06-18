@@ -1,0 +1,9 @@
+{
+  "Name": "MatheMann",
+  "InternalName": "MatheMann",
+  "Author": "MatheKarotti",
+  "Description": "A Plugin to add together the value of sold items.",
+  "Punchline": "And i love... Mathematics",
+  "DalamudApiLevel": 15,
+  "AssemblyVersion": "1.0.0.0"
+}
