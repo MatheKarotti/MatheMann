@@ -13,7 +13,6 @@ selling session.
 - Tracks retainer sales live (works in **English, German, French, and Japanese** clients).
 - Keeps a small **history** of past selling sessions, grouped by character.
 - One-click **Copy** button, with selectable number format (German / international / raw).
-- Optional sound on opening, window gluing, item grouping, and a grand-total footer.
 
 ## Installation
 
