@@ -74,6 +74,10 @@ public sealed class ShopReader : IDisposable
     private List<ShopEntry> lastSnapshot = new();
     private bool wasShown;
 
+    /// <summary>Set when the buyback read looked stale (addon reports items but none
+    /// resolved), so Refresh can keep the "may need updating" status visible.</summary>
+    private bool layoutLooksStale;
+
     /// <summary>
     /// The character/FC for the CURRENT session, captured the moment the ledger
     /// gets its first item — not at session end. Captured this early because
@@ -151,17 +155,13 @@ public sealed class ShopReader : IDisposable
         Plugin.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, AddonName, OnClose);
 
         // Returning to the retainer choose list ends the current retainer's selling
-        // session (each retainer has its own buyback). The retainer's option menu is
-        // a SelectString addon shown on top of the still-open RetainerList; when it
-        // closes and RetainerList is still open, the player has backed out to the
-        // choose list. Guarded by retainerSession so unrelated SelectString menus
-        // (and the initial list appearance) don't trigger a save.
-        // Returning to the retainer choose list ends the current retainer's selling
         // session (each retainer has its own buyback). The RetainerList window closes
         // when you enter a specific retainer and re-opens (PostSetup) when you back
         // out to the choose list — so PostSetup while a session is active is the exact
         // "left this retainer" signal. It does NOT fire when merely drilling into the
         // Sell or Buyback sub-windows, so it won't end the session prematurely.
+        // Guarded by retainerSession so the initial list appearance (before any sale)
+        // doesn't trigger a save.
         Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, RetainerListAddon, OnRetainerListReturn);
     }
 
@@ -237,8 +237,9 @@ public sealed class ShopReader : IDisposable
 
         if (snapshot is null)
         {
-            OnBuyback = false;
-            Status    = DefaultStatus;
+            OnBuyback        = false;
+            layoutLooksStale = false;
+            Status           = DefaultStatus;
             return;
         }
 
@@ -265,7 +266,11 @@ public sealed class ShopReader : IDisposable
         if (ledger.Count > 0) CaptureIdentity();
 
         RecalculateTotals();
-        Status = $"{ledger.Count} item{(ledger.Count == 1 ? "" : "s")} — {TotalPrice:N0} gil";
+
+        // Keep the staleness warning if the read looked broken; otherwise show the
+        // normal item/total summary.
+        if (!layoutLooksStale)
+            Status = $"{ledger.Count} item{(ledger.Count == 1 ? "" : "s")} — {TotalPrice:N0} gil";
     }
 
     /// <summary>
@@ -320,6 +325,32 @@ public sealed class ShopReader : IDisposable
                 continue;
 
             snapshot.Add(new ShopEntry(name, qty, price));
+        }
+
+        // Offset-staleness heuristic (NOT a correctness guarantee — see note below).
+        // The index bounds checks above stop us reading PAST the array, but they
+        // can't tell us if a game patch SHIFTED the columns so that, e.g., the price
+        // now lives at a different index. In that case the old indices are still
+        // in-bounds and we'd silently read the wrong numbers. The one signal we have
+        // is this: if the addon says there are items (itemCount > 0) but we couldn't
+        // resolve a single valid named row, the name column has almost certainly
+        // moved — so surface a soft "may need updating" status instead of pretending
+        // the (empty) read succeeded. This is conservative: in normal operation a
+        // populated buyback list always yields at least one named row, so false
+        // positives are unlikely. It does NOT catch a shift that still lands on
+        // plausible-looking data; that can only be fixed by re-deriving the offsets.
+        //
+        // To re-derive offsets after a patch: add temporary Plugin.Log lines dumping
+        // each AtkValue index/type/value while a buyback window is open, and find the
+        // columns where names/prices/quantities now sit (the original discovery method).
+        if (itemCount > 0 && snapshot.Count == 0)
+        {
+            layoutLooksStale = true;
+            Status = "Couldn't read the buyback list — MatheMann may need updating after a game patch.";
+        }
+        else
+        {
+            layoutLooksStale = false;
         }
 
         return snapshot;

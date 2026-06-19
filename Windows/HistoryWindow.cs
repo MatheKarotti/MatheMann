@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
@@ -14,8 +13,9 @@ public sealed class HistoryWindow : Window, IDisposable
 
     /// <summary>
     /// True when the window was opened via the in-shop History button, meaning it
-    /// should close together with the shop/main window. False when opened via the
-    /// "/mama history" command, meaning it stays open until the user closes it manually.
+    /// should close together with the shop/main window (unless the user disabled
+    /// HistoryClosesWithShop). False when opened via the "/mama history" command,
+    /// meaning it stays open until the user closes it manually.
     /// </summary>
     public bool TiedToShop { get; private set; }
 
@@ -40,10 +40,11 @@ public sealed class HistoryWindow : Window, IDisposable
         }
     }
 
-    /// <summary>Called when the shop/main window closes; hides only if shop-tied.</summary>
+    /// <summary>Called when the shop/main window closes; hides only if shop-tied
+    /// and the user hasn't opted to keep it pinned open.</summary>
     public void OnShopClosed()
     {
-        if (TiedToShop)
+        if (TiedToShop && history.HistoryClosesWithShop)
             IsOpen = false;
     }
 
@@ -52,8 +53,6 @@ public sealed class HistoryWindow : Window, IDisposable
     /// window left so it overlaps the shop's gold border slightly.
     /// </summary>
     private const float AnchorGap = -9f;
-
-    private static readonly CultureInfo De = CultureInfo.GetCultureInfo("de-DE");
 
     private static readonly Vector4 Gold   = new(1.00f, 0.85f, 0.20f, 1f);
     private static readonly Vector4 Muted  = new(0.55f, 0.55f, 0.55f, 1f);
@@ -76,6 +75,8 @@ public sealed class HistoryWindow : Window, IDisposable
 
     public override void PreDraw()
     {
+        BgAlpha = history.WindowOpacity;
+
         // Dock to the right edge of the shop/retainer window only when opened from
         // the in-shop button AND the user has enabled gluing. The "/mama history" standalone
         // window floats wherever the user puts it.
@@ -89,11 +90,14 @@ public sealed class HistoryWindow : Window, IDisposable
 
     public override void Draw()
     {
+        ImGui.SetWindowFontScale(history.WindowScale);
+
         if (history.Sessions.Count == 0)
         {
             ImGui.Spacing();
             ImGui.TextColored(Muted, "No past sessions yet.");
             ImGui.TextColored(Muted, "A session is saved when you leave the retainer or change zones.");
+            ImGui.SetWindowFontScale(1f);
             return;
         }
 
@@ -142,6 +146,8 @@ public sealed class HistoryWindow : Window, IDisposable
 
         if (history.ShowGrandTotal)
             DrawGrandTotal();
+
+        ImGui.SetWindowFontScale(1f);
     }
 
     /// <summary>
@@ -231,7 +237,7 @@ public sealed class HistoryWindow : Window, IDisposable
         else                 ImGui.TextUnformatted(text);
     }
 
-    private static string FormatGil(ulong value) => value.ToString("N0", De);
+    private string FormatGil(ulong value) => GilFormatter.Format(value, history.DisplayFormat);
 
     public void Dispose() { }
 }

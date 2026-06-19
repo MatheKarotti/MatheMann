@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
@@ -20,8 +19,6 @@ public sealed class MainWindow : Window, IDisposable
 
     /// <summary>Invoked when the user clicks the cog button to toggle settings.</summary>
     public Action? ToggleSettings { get; set; }
-
-    private static readonly CultureInfo De = CultureInfo.GetCultureInfo("de-DE");
 
     private static readonly Vector4 Gold   = new(1.00f, 0.85f, 0.20f, 1f);
     private static readonly Vector4 Muted  = new(0.55f, 0.55f, 0.55f, 1f);
@@ -52,6 +49,9 @@ public sealed class MainWindow : Window, IDisposable
 
     public override void PreDraw()
     {
+        // Window background opacity (1.0 = fully opaque, the ImGui default).
+        BgAlpha = config.WindowOpacity;
+
         // Only glue to game windows when the user has enabled it.
         if (!config.GlueToGameWindows) return;
 
@@ -68,6 +68,8 @@ public sealed class MainWindow : Window, IDisposable
 
     public override void Draw()
     {
+        ImGui.SetWindowFontScale(config.WindowScale);
+
         DrawTopBar();
         ImGui.Separator();
 
@@ -75,12 +77,15 @@ public sealed class MainWindow : Window, IDisposable
         {
             ImGui.Spacing();
             ImGui.TextColored(Muted, "Open a shop's Buyback tab to read prices.");
+            ImGui.SetWindowFontScale(1f);
             return;
         }
 
         DrawTable();
         ImGui.Separator();
         DrawTotalRow();
+
+        ImGui.SetWindowFontScale(1f);
     }
 
     // ── Sections ──────────────────────────────────────────────────────────────
@@ -144,11 +149,6 @@ public sealed class MainWindow : Window, IDisposable
 
     /// <summary>
     /// The rows to display: either the raw per-sale ledger, or — when grouping is
-    /// on — identical items (same name + unit price) collapsed into a single row
-    /// with summed quantity and summed gil. Order follows first appearance.
-    /// </summary>
-    /// <summary>
-    /// The rows to display: either the raw per-sale ledger, or — when grouping is
     /// on — items with the same name collapsed into a single row with summed
     /// quantity and summed gil. Grouping by name only (not price) means large
     /// sales the game splits into multiple capped rows still merge into one line.
@@ -185,8 +185,11 @@ public sealed class MainWindow : Window, IDisposable
         ImGui.Text("Total:");
         ImGui.SameLine();
         ImGui.TextColored(Gold, FormatGil(reader.TotalPrice));
-        ImGui.SameLine();
-        ImGui.TextColored(Muted, $"({reader.TotalPrice})");
+        if (config.ShowRawTotal)
+        {
+            ImGui.SameLine();
+            ImGui.TextColored(Muted, $"({reader.TotalPrice})");
+        }
 
         ImGui.SameLine(ImGui.GetWindowWidth() - 60f - ImGui.GetStyle().ItemSpacing.X);
         if (ImGui.SmallButton("Copy"))
@@ -253,8 +256,8 @@ public sealed class MainWindow : Window, IDisposable
         else                 ImGui.TextUnformatted(text);
     }
 
-    /// <summary>German-style thousands separator: 444772 → "444.772".</summary>
-    private static string FormatGil(uint value) => value.ToString("N0", De);
+    /// <summary>Format a gil value using the user's chosen display format.</summary>
+    private string FormatGil(uint value) => GilFormatter.Format(value, config.DisplayFormat);
 
     public void Dispose() { }
 }

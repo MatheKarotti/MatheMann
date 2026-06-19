@@ -52,16 +52,43 @@ public sealed class SessionHistory : IPluginConfiguration
     public GilFormat CopyFormat { get; set; } = GilFormat.German;
 
     /// <summary>
+    /// How gil numbers are formatted in the on-screen tables and totals (separate
+    /// from <see cref="CopyFormat"/>, which only affects clipboard text). Defaults
+    /// to German to match the plugin's original behaviour.
+    /// </summary>
+    public GilFormat DisplayFormat { get; set; } = GilFormat.German;
+
+    /// <summary>
     /// Show the grand-total footer (broken down by character) at the bottom of the
     /// history window. On by default. Clearing history is the only way to reset
     /// the total now — there's no separate reset button.
     /// </summary>
     public bool ShowGrandTotal { get; set; } = true;
 
-    public int Version { get; set; }
+    /// <summary>
+    /// When the history window is opened from the in-shop "History" button, close it
+    /// again automatically when the shop/main window closes. On by default — turn it
+    /// off to keep the history window pinned open across shop visits. (The
+    /// "/mama history" command always opens it standalone regardless of this.)
+    /// </summary>
+    public bool HistoryClosesWithShop { get; set; } = true;
 
-    /// <summary>How many sessions to keep before the oldest drops off.</summary>
-    private const int MaxSessions = 10;
+    /// <summary>UI scale for the MatheMann windows (1.0 = normal). 0.7–2.0.</summary>
+    public float WindowScale { get; set; } = 1.0f;
+
+    /// <summary>Window background opacity (1.0 = opaque). 0.3–1.0.</summary>
+    public float WindowOpacity { get; set; } = 1.0f;
+
+    /// <summary>
+    /// Show the raw, unformatted gil value in parentheses next to the main total
+    /// (e.g. "6.890 (6890)"). Useful for debugging; off by default for a cleaner look.
+    /// </summary>
+    public bool ShowRawTotal { get; set; }
+
+    /// <summary>How many finished sessions to keep before the oldest drops off.</summary>
+    public int MaxSessions { get; set; } = 10;
+
+    public int Version { get; set; }
 
     [NonSerialized] private IDalamudPluginInterface? pluginInterface;
 
@@ -71,9 +98,16 @@ public sealed class SessionHistory : IPluginConfiguration
     public void Add(SavedSession session)
     {
         Sessions.Insert(0, session);
-        if (Sessions.Count > MaxSessions)
-            Sessions.RemoveRange(MaxSessions, Sessions.Count - MaxSessions);
+        Trim();
         Save();
+    }
+
+    /// <summary>Drop sessions beyond the configured cap (oldest first).</summary>
+    public void Trim()
+    {
+        var cap = Math.Max(1, MaxSessions);
+        if (Sessions.Count > cap)
+            Sessions.RemoveRange(cap, Sessions.Count - cap);
     }
 
     public void Clear()

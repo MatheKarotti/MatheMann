@@ -13,6 +13,7 @@ selling session.
 - Tracks retainer sales live (works in **English, German, French, and Japanese** clients).
 - Keeps a small **history** of past selling sessions, grouped by character.
 - One-click **Copy** button, with selectable number format (German / international / raw).
+- Optional sound on opening, window gluing, item grouping, and a grand-total footer.
 
 ## Installation
 
@@ -34,3 +35,10 @@ selling session.
 | `/mama`          | Toggle the main window              |
 | `/mama history`  | Open the history window             |
 | `/mama settings` | Open the settings window            |
+
+## Building from source
+
+Requires the Dalamud dev libraries (installed automatically by XIVLauncher under
+`%appdata%\XIVLauncher\addon\Hooks\dev\`). Open the project in Visual Studio and build
+in **Release / x64**. DalamudPackager produces `latest.zip` in the output folder, which
+is the installable artifact attached to each GitHub release.

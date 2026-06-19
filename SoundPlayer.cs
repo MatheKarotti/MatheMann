@@ -19,7 +19,7 @@ public static class SoundPlayer
         try
         {
             var path = GetMp3Path();
-            Plugin.Log.Information($"[MatheMann] Attempting to play sound: {path}");
+            Plugin.Log.Debug($"[MatheMann] Attempting to play sound: {path}");
 
             if (path is null || !File.Exists(path))
             {
@@ -40,7 +40,7 @@ public static class SoundPlayer
 
             output.Init(reader);
             output.Play();
-            Plugin.Log.Information("[MatheMann] Playback started.");
+            Plugin.Log.Debug("[MatheMann] Playback started.");
         }
         catch (Exception ex)
         {
@@ -65,7 +65,7 @@ public static class SoundPlayer
             if (dir is not null)
                 mp3Path = Path.Combine(dir, "sounds", "open.mp3");
 
-            Plugin.Log.Information($"[MatheMann] Resolved sound path: {mp3Path}");
+            Plugin.Log.Debug($"[MatheMann] Resolved sound path: {mp3Path}");
         }
         catch (Exception ex)
         {
