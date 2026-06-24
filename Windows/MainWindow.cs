@@ -49,6 +49,8 @@ public sealed class MainWindow : Window, IDisposable
 
     public override void PreDraw()
     {
+        WindowStyle.Push();
+
         // Window background opacity (1.0 = fully opaque, the ImGui default).
         BgAlpha = config.WindowOpacity;
 
@@ -66,6 +68,8 @@ public sealed class MainWindow : Window, IDisposable
         }
     }
 
+    public override void PostDraw() => WindowStyle.Pop();
+
     public override void Draw()
     {
         ImGui.SetWindowFontScale(config.WindowScale);
@@ -76,7 +80,15 @@ public sealed class MainWindow : Window, IDisposable
         if (reader.Entries.Count == 0)
         {
             ImGui.Spacing();
-            ImGui.TextColored(Muted, "Open a shop's Buyback tab to read prices.");
+
+            // Show the friendly prompt normally. Only a genuine warning (patch
+            // staleness, or "switch to the Buyback tab") replaces it — the routine
+            // idle/"0 items" status does not, so the prompt stays visible.
+            if (reader.HasWarning)
+                ImGui.TextColored(Muted, reader.Status);
+            else
+                ImGui.TextColored(Muted, "Sell an item or open a shop's Buyback tab for MatheMann to read and add up prices.");
+
             ImGui.SetWindowFontScale(1f);
             return;
         }
@@ -107,8 +119,24 @@ public sealed class MainWindow : Window, IDisposable
             else
                 historyWindow.OpenFromButton();
         }
-        ImGui.SameLine();
-        ImGui.TextColored(Muted, reader.Status);
+
+        // Live counter next to the History button — shown whenever a shop's buyback
+        // view is open (even with nothing sold yet) or the ledger has items. When
+        // truly idle (no shop), the empty-state body shows the prompt instead, so we
+        // keep the top bar clean. A meaningful non-idle status (patch warning, "switch
+        // to the Buyback tab") still surfaces here.
+        if (reader.OnBuyback || reader.Entries.Count > 0)
+        {
+            ImGui.SameLine();
+            var count = reader.Entries.Count;
+            ImGui.TextColored(Muted,
+                $"{count} item{(count == 1 ? "" : "s")} / {FormatGil(reader.TotalPrice)} gil");
+        }
+        else if (reader.HasWarning)
+        {
+            ImGui.SameLine();
+            ImGui.TextColored(Muted, reader.Status);
+        }
     }
 
     private void DrawTable()
@@ -191,9 +219,12 @@ public sealed class MainWindow : Window, IDisposable
             ImGui.TextColored(Muted, $"({reader.TotalPrice})");
         }
 
-        ImGui.SameLine(ImGui.GetWindowWidth() - 60f - ImGui.GetStyle().ItemSpacing.X);
-        if (ImGui.SmallButton("Copy"))
-            ImGui.SetClipboardText(GilFormatter.Format(reader.TotalPrice, config.CopyFormat));
+        ImGui.SameLine(ImGui.GetWindowWidth() - 72f - ImGui.GetStyle().ItemSpacing.X);
+        CopyButton.Draw(
+            id: "mainTotal",
+            baseLabel: "Copy",
+            textToCopy: GilFormatter.Format(reader.TotalPrice, config.CopyFormat),
+            changeToken: $"{reader.TotalPrice}:{reader.Entries.Count}");
     }
 
     // ── Window anchoring ────────────────────────────────────────────────────────

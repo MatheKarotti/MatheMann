@@ -75,6 +75,8 @@ public sealed class HistoryWindow : Window, IDisposable
 
     public override void PreDraw()
     {
+        WindowStyle.Push();
+
         BgAlpha = history.WindowOpacity;
 
         // Dock to the right edge of the shop/retainer window only when opened from
@@ -87,6 +89,8 @@ public sealed class HistoryWindow : Window, IDisposable
             ImGui.SetNextWindowPos(pos, ImGuiCond.Always);
         }
     }
+
+    public override void PostDraw() => WindowStyle.Pop();
 
     public override void Draw()
     {
@@ -106,11 +110,22 @@ public sealed class HistoryWindow : Window, IDisposable
 
         ImGui.Separator();
 
-        // Scrollable session list, leaving room for the grand-total footer only
-        // when it's actually going to be shown.
-        var footerHeight = history.ShowGrandTotal
-            ? ImGui.GetFrameHeightWithSpacing() * 3 + ImGui.GetStyle().ItemSpacing.Y
-            : 0f;
+        // Reserve space for the grand-total footer so it stays pinned below the
+        // scrolling list. The footer is: a separator + "Total:" + one line per
+        // distinct character + "Grand total:". Count the distinct characters so the
+        // reserved height matches however many there are (a fixed guess overlaps the
+        // list once there's more than one or two characters).
+        var footerHeight = 0f;
+        if (history.ShowGrandTotal)
+        {
+            var characterCount = CountDistinctCharacters();
+            var lineH = ImGui.GetTextLineHeightWithSpacing();
+            // lines: "Total:" + N characters + "Grand total:"  (= N + 2)
+            footerHeight = lineH * (characterCount + 2)
+                         + ImGui.GetStyle().ItemSpacing.Y
+                         + ImGui.GetStyle().FramePadding.Y * 2;
+        }
+
         ImGui.BeginChild("sessions", new Vector2(0, -footerHeight), false);
 
         for (var i = 0; i < history.Sessions.Count; i++)
@@ -124,19 +139,21 @@ public sealed class HistoryWindow : Window, IDisposable
             var open = ImGui.CollapsingHeader($"{label}##session{i}");
 
             // Second line: which character sold, and their Free Company.
-            var who = string.IsNullOrEmpty(s.Character) ? "Unknown character"
-                    : string.IsNullOrEmpty(s.FreeCompany) ? s.Character
-                    : $"{s.Character}  «{s.FreeCompany}»";
             ImGui.Indent(20f);
-            ImGui.TextColored(Muted, who);
+            ImGui.TextColored(Muted, CharacterKey(s));
             ImGui.Unindent(20f);
 
             if (open)
             {
                 // Copy this session's total. Lives inside the expanded section so it
                 // never overlaps (and accidentally toggles) the collapsing header.
-                if (ImGui.SmallButton($"Copy total##copy{i}"))
-                    ImGui.SetClipboardText(GilFormatter.Format(s.TotalGil, history.CopyFormat));
+                // Keyed by the session's timestamp+total so each row's "Copied!"
+                // state is independent and stable even if the list is trimmed.
+                CopyButton.Draw(
+                    id: $"session{s.EndedAt.Ticks}_{s.TotalGil}",
+                    baseLabel: "Copy total",
+                    textToCopy: GilFormatter.Format(s.TotalGil, history.CopyFormat),
+                    changeToken: s.TotalGil.ToString());
 
                 DrawSessionItems(s, i);
             }
@@ -148,6 +165,23 @@ public sealed class HistoryWindow : Window, IDisposable
             DrawGrandTotal();
 
         ImGui.SetWindowFontScale(1f);
+    }
+
+    /// <summary>The display key used to group sessions by character in the footer.
+    /// Shared so the reserved footer height (CountDistinctCharacters) and the drawn
+    /// footer (DrawGrandTotal) always agree on how many lines there are.</summary>
+    private static string CharacterKey(SavedSession s) =>
+        string.IsNullOrEmpty(s.Character) ? "Unknown character"
+        : string.IsNullOrEmpty(s.FreeCompany) ? s.Character
+        : $"{s.Character}  «{s.FreeCompany}»";
+
+    /// <summary>How many distinct characters appear across all stored sessions.</summary>
+    private int CountDistinctCharacters()
+    {
+        var seen = new HashSet<string>();
+        foreach (var s in history.Sessions)
+            seen.Add(CharacterKey(s));
+        return seen.Count;
     }
 
     /// <summary>
@@ -162,10 +196,7 @@ public sealed class HistoryWindow : Window, IDisposable
         ulong grand = 0;
         foreach (var s in history.Sessions)
         {
-            var who = string.IsNullOrEmpty(s.Character) ? "Unknown character"
-                    : string.IsNullOrEmpty(s.FreeCompany) ? s.Character
-                    : $"{s.Character}  «{s.FreeCompany}»";
-
+            var who = CharacterKey(s);
             perCharacter.TryGetValue(who, out var cur);
             perCharacter[who] = cur + s.TotalGil;
             grand += s.TotalGil;

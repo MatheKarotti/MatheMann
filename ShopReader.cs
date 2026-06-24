@@ -34,6 +34,15 @@ public sealed class ShopReader : IDisposable
     public uint   TotalQuantity { get; private set; }
     public string Status        { get; private set; } = DefaultStatus;
 
+    /// <summary>
+    /// True only when <see cref="Status"/> is a genuine warning the user should see
+    /// (e.g. "switch to the Buyback tab", or the patch-staleness message) — NOT for
+    /// the routine idle prompt or the "N items — M gil" counter. The main window's
+    /// empty state uses this to decide whether to show its friendly prompt or surface
+    /// a real warning.
+    /// </summary>
+    public bool HasWarning { get; private set; }
+
     public bool OnBuyback { get; private set; }
 
     public event Action? ShopOpened;
@@ -57,9 +66,14 @@ public sealed class ShopReader : IDisposable
     /// </summary>
     public event Action? RetainerSessionEnded;
 
+    /// <summary>The status shown when idle (no shop open, no warning). MainWindow
+    /// uses this to tell "nothing happening" apart from a real status message like
+    /// the patch-staleness warning.</summary>
+    public const string IdleStatus = "Open a shop's Buyback tab.";
+
     private const string AddonName         = "Shop";
     private const string RetainerListAddon = "RetainerList";
-    private const string DefaultStatus     = "Open a shop's Buyback tab.";
+    private const string DefaultStatus     = IdleStatus;
 
     // Confirmed AtkValues layout for the Shop addon. Values sit in parallel
     // "columns" 61 slots wide, indexed by item position.
@@ -123,7 +137,8 @@ public sealed class ShopReader : IDisposable
         CaptureIdentity();
 
         RecalculateTotals();
-        Status = $"{ledger.Count} item{(ledger.Count == 1 ? "" : "s")} — {TotalPrice:N0} gil";
+        HasWarning = false;
+        Status = $"{ledger.Count} item{(ledger.Count == 1 ? "" : "s")} - {TotalPrice:N0} gil";
 
         // Make the window visible. Fire unconditionally so that if the user closed
         // it and then sells again, it reopens. Re-opening an open window is a no-op.
@@ -239,7 +254,10 @@ public sealed class ShopReader : IDisposable
         {
             OnBuyback        = false;
             layoutLooksStale = false;
-            Status           = DefaultStatus;
+            // If TryReadNpcShop set a warning (shop open on Current Stock), keep it;
+            // otherwise the shop is fully closed, so show the idle prompt.
+            if (!HasWarning)
+                Status = DefaultStatus;
             return;
         }
 
@@ -268,9 +286,12 @@ public sealed class ShopReader : IDisposable
         RecalculateTotals();
 
         // Keep the staleness warning if the read looked broken; otherwise show the
-        // normal item/total summary.
+        // normal item/total summary (and clear any prior warning).
         if (!layoutLooksStale)
-            Status = $"{ledger.Count} item{(ledger.Count == 1 ? "" : "s")} — {TotalPrice:N0} gil";
+        {
+            HasWarning = false;
+            Status = $"{ledger.Count} item{(ledger.Count == 1 ? "" : "s")} - {TotalPrice:N0} gil";
+        }
     }
 
     /// <summary>
@@ -283,7 +304,11 @@ public sealed class ShopReader : IDisposable
 
         var addon = (AddonShop*)Plugin.GameGui.GetAddonByName("Shop").Address;
         if (addon is null || !addon->AtkUnitBase.IsVisible)
+        {
+            // Shop fully closed — no warning, caller will reset to the idle status.
+            HasWarning = false;
             return null;
+        }
 
         var atkValues = addon->AtkUnitBase.AtkValuesSpan;
 
@@ -296,7 +321,8 @@ public sealed class ShopReader : IDisposable
         if (!isBuyback)
         {
             // Shop is open but on Current Stock — treat as "not buyback".
-            Status = "Switch to the Buyback tab.";
+            Status     = "Switch to the Buyback tab.";
+            HasWarning = true;
             return null;
         }
 
@@ -346,7 +372,8 @@ public sealed class ShopReader : IDisposable
         if (itemCount > 0 && snapshot.Count == 0)
         {
             layoutLooksStale = true;
-            Status = "Couldn't read the buyback list — MatheMann may need updating after a game patch.";
+            HasWarning = true;
+            Status = "Couldn't read the buyback list - MatheMann may need updating after a game patch.";
         }
         else
         {
@@ -532,6 +559,7 @@ public sealed class ShopReader : IDisposable
         retainerSession    = false;
         sessionCharacter   = "";
         sessionFreeCompany = "";
+        HasWarning         = false;
         Status             = DefaultStatus;
     }
 
