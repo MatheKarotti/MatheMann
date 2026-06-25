@@ -10,14 +10,13 @@ using Dalamud.Interface.Windowing;
 
 namespace MatheMann;
 
-/// <summary>The plugin's only window: a small chart of shop items + a grand total.</summary>
+// Main window: the item table + grand total.
 public sealed class MainWindow : Window, IDisposable
 {
     private readonly ShopReader reader;
     private readonly HistoryWindow historyWindow;
     private readonly SessionHistory config;
 
-    /// <summary>Invoked when the user clicks the cog button to toggle settings.</summary>
     public Action? ToggleSettings { get; set; }
 
     private static readonly Vector4 Gold   = new(1.00f, 0.85f, 0.20f, 1f);
@@ -148,25 +147,41 @@ public sealed class MainWindow : Window, IDisposable
                                     | ImGuiTableFlags.SizingFixedFit
                                     | ImGuiTableFlags.ScrollY;
 
-        var height = ImGui.GetContentRegionAvail().Y - 46f;
+        var height       = ImGui.GetContentRegionAvail().Y - 46f;
+        var showUnit     = config.ShowUnitPrice;
+        var columnCount  = showUnit ? 4 : 3;
 
-        if (ImGui.BeginTable("items", 3, flags, new Vector2(-1, height)))
+        if (ImGui.BeginTable("items", columnCount, flags, new Vector2(-1, height)))
         {
             ImGui.TableSetupColumn("Item",  ImGuiTableColumnFlags.WidthStretch);
             ImGui.TableSetupColumn("Qty",   ImGuiTableColumnFlags.WidthFixed, QtyColWidth);
+            if (showUnit)
+                ImGui.TableSetupColumn("Unit", ImGuiTableColumnFlags.WidthFixed, PriceColWidth);
             ImGui.TableSetupColumn("Price", ImGuiTableColumnFlags.WidthFixed, PriceColWidth);
 
             ImGui.TableNextRow(ImGuiTableRowFlags.Headers);
-            ImGui.TableSetColumnIndex(0); ImGui.TextColored(Header, "Item");
-            ImGui.TableSetColumnIndex(1); RightAligned("Qty",   QtyColWidth,   Header);
-            ImGui.TableSetColumnIndex(2); RightAligned("Price", PriceColWidth, Header);
+            var col = 0;
+            ImGui.TableSetColumnIndex(col++); ImGui.TextColored(Header, "Item");
+            ImGui.TableSetColumnIndex(col++); RightAligned("Qty", QtyColWidth, Header);
+            if (showUnit)
+            {
+                ImGui.TableSetColumnIndex(col++); RightAligned("Unit", PriceColWidth, Header);
+            }
+            ImGui.TableSetColumnIndex(col); RightAligned("Price", PriceColWidth, Header);
 
             foreach (var row in GetRows())
             {
                 ImGui.TableNextRow();
-                ImGui.TableSetColumnIndex(0); ImGui.TextUnformatted(row.Name);
-                ImGui.TableSetColumnIndex(1); RightAligned(row.Quantity.ToString(), QtyColWidth);
-                ImGui.TableSetColumnIndex(2); RightAligned(FormatGil(row.Price), PriceColWidth, Gold);
+                col = 0;
+                ImGui.TableSetColumnIndex(col++); ImGui.TextUnformatted(row.Name);
+                ImGui.TableSetColumnIndex(col++); RightAligned(row.Quantity.ToString(), QtyColWidth);
+                if (showUnit)
+                {
+                    // Per-item price. Guard against a zero quantity just in case.
+                    var unit = row.Quantity > 0 ? row.Price / row.Quantity : row.Price;
+                    ImGui.TableSetColumnIndex(col++); RightAligned(FormatGil(unit), PriceColWidth, Gold);
+                }
+                ImGui.TableSetColumnIndex(col); RightAligned(FormatGil(row.Price), PriceColWidth, Gold);
             }
 
             ImGui.EndTable();
@@ -175,37 +190,47 @@ public sealed class MainWindow : Window, IDisposable
         ImGui.PopStyleVar();
     }
 
-    /// <summary>
-    /// The rows to display: either the raw per-sale ledger, or — when grouping is
-    /// on — items with the same name collapsed into a single row with summed
-    /// quantity and summed gil. Grouping by name only (not price) means large
-    /// sales the game splits into multiple capped rows still merge into one line.
-    /// HQ items carry the HQ symbol in their name, so they stay separate as
-    /// intended. Order follows first appearance.
-    /// </summary>
+    // Raw ledger, or (when grouping is on) same-name rows merged with summed qty/gil.
+    // Group by name only, not price - the game splits big sales into rows capped at
+    // 999, so name+price would wrongly split them. HQ keeps its symbol so it stays
+    // separate. Order follows first appearance, unless SortByValue is on.
     private IEnumerable<ShopEntry> GetRows()
     {
-        if (!config.GroupItems) return reader.Entries;
+        IEnumerable<ShopEntry> rows;
 
-        var order  = new List<string>();
-        var totals = new Dictionary<string, (uint Qty, uint Gil)>();
-
-        foreach (var e in reader.Entries)
+        if (!config.GroupItems)
         {
-            if (!totals.ContainsKey(e.Name))
+            rows = reader.Entries;
+        }
+        else
+        {
+            var order  = new List<string>();
+            var totals = new Dictionary<string, (uint Qty, uint Gil)>();
+
+            foreach (var e in reader.Entries)
             {
-                order.Add(e.Name);
-                totals[e.Name] = (0u, 0u);
+                if (!totals.ContainsKey(e.Name))
+                {
+                    order.Add(e.Name);
+                    totals[e.Name] = (0u, 0u);
+                }
+                var cur = totals[e.Name];
+                totals[e.Name] = (cur.Qty + e.Quantity, cur.Gil + e.Price);
             }
-            var cur = totals[e.Name];
-            totals[e.Name] = (cur.Qty + e.Quantity, cur.Gil + e.Price);
+
+            rows = order.Select(name =>
+            {
+                var (qty, gil) = totals[name];
+                return new ShopEntry(name, qty, gil);
+            });
         }
 
-        return order.Select(name =>
-        {
-            var (qty, gil) = totals[name];
-            return new ShopEntry(name, qty, gil);
-        });
+        // Most valuable first. By line total, not unit price - "what was the big
+        // chunk of this haul" is the line total.
+        if (config.SortByValue)
+            rows = rows.OrderByDescending(r => r.Price);
+
+        return rows;
     }
 
     private void DrawTotalRow()
@@ -229,7 +254,7 @@ public sealed class MainWindow : Window, IDisposable
 
     // ── Window anchoring ────────────────────────────────────────────────────────
 
-    /// <summary>The in-game windows MatheMann can glue to, in priority order.</summary>
+    // Glue targets, in priority order.
     private static readonly string[] AnchorAddons =
     {
         "Shop",                  // NPC vendor & retainer buyback
@@ -241,10 +266,7 @@ public sealed class MainWindow : Window, IDisposable
         "RetainerList",          // the retainer selection list
     };
 
-    /// <summary>
-    /// Find the first open shop/retainer window and return its on-screen rect, so
-    /// the MatheMann window can glue to it. Returns false if none are open.
-    /// </summary>
+    // First open shop/retainer window's screen rect, for gluing. False if none open.
     public static unsafe bool TryGetAnchorRect(out float x, out float y, out float width)
     {
         foreach (var name in AnchorAddons)
@@ -256,7 +278,7 @@ public sealed class MainWindow : Window, IDisposable
         return false;
     }
 
-    /// <summary>Back-compat alias used by the history window to dock to the shop.</summary>
+    // Alias the history window uses to dock to the shop.
     public static unsafe bool TryGetShopRect(out float x, out float y, out float width)
         => TryGetAnchorRect(out x, out y, out width);
 
@@ -287,7 +309,6 @@ public sealed class MainWindow : Window, IDisposable
         else                 ImGui.TextUnformatted(text);
     }
 
-    /// <summary>Format a gil value using the user's chosen display format.</summary>
     private string FormatGil(uint value) => GilFormatter.Format(value, config.DisplayFormat);
 
     public void Dispose() { }

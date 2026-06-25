@@ -6,12 +6,8 @@ using Dalamud.Interface.Windowing;
 
 namespace MatheMann;
 
-/// <summary>
-/// All plugin settings, grouped into Behaviour / Appearance / Numbers / History.
-/// Each setting shows a small (i) info icon next to its label; hovering it reveals
-/// the explanation as a tooltip, keeping the window clean instead of printing a
-/// permanent grey subtitle under every control.
-/// </summary>
+// Settings, grouped Behaviour / Appearance / Numbers / History. Each one has an (i)
+// icon with the explanation on hover instead of a permanent subtitle.
 public sealed class SettingsWindow : Window, IDisposable
 {
     private readonly SessionHistory config;
@@ -53,6 +49,12 @@ public sealed class SettingsWindow : Window, IDisposable
 
         Toggle("Group Items", config.GroupItems, v => config.GroupItems = v,
             "Groups together multiple instances of the same items (for example Minions).");
+
+        Toggle("Show unit price", config.ShowUnitPrice, v => config.ShowUnitPrice = v,
+            "Adds a column showing the price per single item.");
+
+        Toggle("Sort by value", config.SortByValue, v => config.SortByValue = v,
+            "Sorts the table by price, most valuable first, instead of the order you sold in.");
 
         Divider();
 
@@ -136,11 +138,7 @@ public sealed class SettingsWindow : Window, IDisposable
         ImGui.Spacing();
     }
 
-    /// <summary>
-    /// Draws a muted (i) info-circle icon. Hovering it shows <paramref name="tooltip"/>.
-    /// Uses Dalamud's icon font for the glyph (same mechanism as the main window cog),
-    /// wrapped in a using-block so the font is popped even if drawing throws.
-    /// </summary>
+    // Muted (i) icon, tooltip on hover. Icon font via using so it's popped on throw.
     private static void InfoIcon(string tooltip)
     {
         using (Plugin.PluginInterface.UiBuilder.IconFontHandle.Push())
@@ -160,9 +158,7 @@ public sealed class SettingsWindow : Window, IDisposable
         }
     }
 
-    /// <summary>A plain text label followed by an info icon on the same line.
-    /// Used for non-checkbox controls (sliders, combos) where the label sits above
-    /// the control.</summary>
+    // Label + info icon on one line, for sliders/combos (label sits above the control).
     private static void LabelWithInfo(string label, string tooltip)
     {
         ImGui.TextUnformatted(label);
@@ -170,8 +166,7 @@ public sealed class SettingsWindow : Window, IDisposable
         InfoIcon(tooltip);
     }
 
-    /// <summary>A checkbox bound through a getter value + setter callback (so it works
-    /// with config properties), with an info icon after the label, saving on change.</summary>
+    // Checkbox via getter/setter (works with config properties), info icon, saves on change.
     private void Toggle(string label, bool current, Action<bool> set, string tooltip)
     {
         var value = current;

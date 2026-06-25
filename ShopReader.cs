@@ -8,25 +8,14 @@ using FFXIVClientStructs.FFXIV.Component.GUI;
 
 namespace MatheMann;
 
-/// <summary>A single sold item: its name, quantity, and the gil the NPC paid.</summary>
 public readonly record struct ShopEntry(string Name, uint Quantity, uint Price);
 
-/// <summary>
-/// Reads the vendor Buyback list (the items you've sold to an NPC) and accumulates
-/// everything sold this session into a running ledger, so the total survives past
-/// the game's rolling 10-item Buyback limit.
-///
-/// The data is read from the Shop addon's AtkValues at confirmed offsets: the
-/// active tab (index 0), item count (index 2), names (index 14 + i), prices
-/// (index 75 + i) and quantities (index 380 + i). The addon's lifecycle events
-/// trigger a re-read whenever the buyback list changes.
-///
-/// New sales appear at the TOP of the Buyback list, pushing older rows down; once
-/// the list holds 10 rows the oldest falls off. To work out how many rows are new
-/// on each update we use the reported item count (grows by the number of new rows,
-/// reliable even for identical items) and fall back to shift-detection once the
-/// list caps. Buying an item back shrinks the list, which we detect and reconcile.
-/// </summary>
+// Reads the vendor Buyback list (items you've sold) from the Shop addon's AtkValues
+// and accumulates everything sold this visit, so the total outlives the game's
+// 10-item buyback cap. Offsets: tab at 0, count at 2, names at 14+i, prices at 75+i,
+// qty at 380+i. New sales appear at the top; we track new rows by the reported count
+// and fall back to shift-detection once the list caps at 10. Buying back shrinks the
+// list and gets reconciled. See DEVNOTES for the offset details and how they were found.
 public sealed class ShopReader : IDisposable
 {
     public IReadOnlyList<ShopEntry> Entries => ledger;
@@ -34,13 +23,8 @@ public sealed class ShopReader : IDisposable
     public uint   TotalQuantity { get; private set; }
     public string Status        { get; private set; } = DefaultStatus;
 
-    /// <summary>
-    /// True only when <see cref="Status"/> is a genuine warning the user should see
-    /// (e.g. "switch to the Buyback tab", or the patch-staleness message) — NOT for
-    /// the routine idle prompt or the "N items — M gil" counter. The main window's
-    /// empty state uses this to decide whether to show its friendly prompt or surface
-    /// a real warning.
-    /// </summary>
+    // True only for a real warning (wrong shop tab, or offsets look stale), not the
+    // idle prompt or the item counter. MainWindow uses it to decide prompt vs warning.
     public bool HasWarning { get; private set; }
 
     public bool OnBuyback { get; private set; }
@@ -48,35 +32,24 @@ public sealed class ShopReader : IDisposable
     public event Action? ShopOpened;
     public event Action? ShopClosed;
 
-    /// <summary>
-    /// Fired only when a brand-new selling session begins — the buyback view (or a
-    /// fresh retainer chat session) transitions from closed to open. Unlike
-    /// <see cref="ShopOpened"/>, this does NOT fire again for every subsequent sale
-    /// within the same session (ShopOpened fires on each new sale too, so a
-    /// manually-closed window reopens). Intended for one-shot effects like the
-    /// "play sound on open" setting, so the sound plays once per session instead
-    /// of once per item sold.
-    /// </summary>
+    // Fires once when a selling session starts, unlike ShopOpened which fires per sale
+    // (so a manually-closed window reopens). Used for one-shot stuff like the sound.
     public event Action? SessionOpened;
 
-    /// <summary>
-    /// Fired when the player leaves the retainer entirely (RetainerList closes)
-    /// during a retainer selling session. Plugin saves the session to history and
-    /// closes the windows in response.
-    /// </summary>
+    // Fires when you leave the retainer entirely (RetainerList closes). Plugin saves
+    // the session and closes the windows.
     public event Action? RetainerSessionEnded;
 
-    /// <summary>The status shown when idle (no shop open, no warning). MainWindow
-    /// uses this to tell "nothing happening" apart from a real status message like
-    /// the patch-staleness warning.</summary>
+    // Shown when idle. MainWindow checks against this to tell idle apart from a real
+    // warning status.
     public const string IdleStatus = "Open a shop's Buyback tab.";
 
     private const string AddonName         = "Shop";
     private const string RetainerListAddon = "RetainerList";
     private const string DefaultStatus     = IdleStatus;
 
-    // Confirmed AtkValues layout for the Shop addon. Values sit in parallel
-    // "columns" 61 slots wide, indexed by item position.
+    // Shop addon AtkValues layout, indexed by item position. Hardcoded - will break
+    // on a game patch (see DEVNOTES for how to re-derive).
     private const int    TabIndex        = 0;   // 0 = Current Stock, 1 = Buyback
     private const int    ItemCountIndex  = 2;
     private const int    NameColumn      = 14;
@@ -88,43 +61,26 @@ public sealed class ShopReader : IDisposable
     private List<ShopEntry> lastSnapshot = new();
     private bool wasShown;
 
-    /// <summary>Set when the buyback read looked stale (addon reports items but none
-    /// resolved), so Refresh can keep the "may need updating" status visible.</summary>
+    // Set when a read looked stale (count > 0 but nothing resolved) so Refresh keeps
+    // the warning status.
     private bool layoutLooksStale;
 
-    /// <summary>
-    /// The character/FC for the CURRENT session, captured the moment the ledger
-    /// gets its first item — not at session end. Captured this early because
-    /// ObjectTable.LocalPlayer can already be null by the time a zone change
-    /// (which ends an NPC session) actually fires, leaving Character/FreeCompany
-    /// blank on the saved session ("Unknown" in the history window) otherwise.
-    /// </summary>
+    // Captured when the ledger gets its first item, NOT at session end - LocalPlayer
+    // can be null during the zone change that ends an NPC session. See DEVNOTES.
     private string sessionCharacter    = "";
     private string sessionFreeCompany  = "";
 
-    /// <summary>
-    /// True while we're tracking a retainer selling session via chat messages
-    /// (the retainer sell window has no buyback view, so sales are read from chat).
-    /// Distinguishes the retainer flow from the NPC vendor flow.
-    /// </summary>
     private bool retainerSession;
 
-    /// <summary>
-    /// Add a sale parsed from a chat message ("You sell N item for X gil"). This
-    /// same chat line is produced for BOTH retainer sales and NPC vendor sales, but
-    /// only retainer sales actually need it — NPC sales are already tracked
-    /// directly from the Shop addon's Buyback list, which updates immediately.
-    /// So: if the Shop window is currently open (any tab), this message is from an
-    /// NPC sale the window-based reader will pick up on its next refresh, and
-    /// adding it here too would double-count it. Only retainer sales (where the
-    /// Shop addon is NOT open — the separate Markets/sell window is) get added.
-    /// </summary>
+    // The "you sell N for X gil" chat line fires for NPC sales too, not just
+    // retainer sales. NPC sales are already read from the Shop addon, so if the Shop
+    // window is open we skip this to avoid double-counting - chat only handles the
+    // retainer case (Markets window, no buyback view).
     public void AddChatSale(string name, uint quantity, uint price)
     {
         if (IsShopWindowOpen())
             return;
 
-        // Starting a fresh retainer session: clear any stale NPC ledger first.
         bool freshSession = !retainerSession;
         if (freshSession)
         {
@@ -132,7 +88,6 @@ public sealed class ShopReader : IDisposable
             retainerSession = true;
         }
 
-        // New sales go to the top, matching the in-game buyback ordering.
         ledger.Insert(0, new ShopEntry(name, quantity, price));
         CaptureIdentity();
 
@@ -140,21 +95,15 @@ public sealed class ShopReader : IDisposable
         HasWarning = false;
         Status = $"{ledger.Count} item{(ledger.Count == 1 ? "" : "s")} - {TotalPrice:N0} gil";
 
-        // Make the window visible. Fire unconditionally so that if the user closed
-        // it and then sells again, it reopens. Re-opening an open window is a no-op.
+        // Fire unconditionally so reselling after a manual close reopens the window.
         wasShown = true;
         ShopOpened?.Invoke();
 
-        // Only the FIRST sale of a fresh session counts as "opening" for one-shot
-        // effects (sound) — subsequent sales just grow the ledger.
+        // Sound etc. should fire once per session, not per item.
         if (freshSession)
             SessionOpened?.Invoke();
     }
 
-    /// <summary>True if the "Shop" addon is currently open, regardless of tab.
-    /// Used to tell an NPC vendor sale (window already open, window-based reader
-    /// handles it) apart from a retainer sale (Shop addon closed, chat is the
-    /// only source) for the same chat sell line.</summary>
     private unsafe bool IsShopWindowOpen()
     {
         var addon = (AtkUnitBase*)Plugin.GameGui.GetAddonByName(AddonName).Address;
@@ -163,27 +112,21 @@ public sealed class ShopReader : IDisposable
 
     public ShopReader()
     {
-        // The retainer "Item buyback" window reuses the same "Shop" addon as the
-        // NPC vendor, so a single set of listeners covers both.
+        // Retainer "Item buyback" reuses the same Shop addon as the NPC vendor, so
+        // one set of listeners covers both.
         Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   AddonName, OnUpdate);
         Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostRefresh, AddonName, OnUpdate);
         Plugin.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, AddonName, OnClose);
 
-        // Returning to the retainer choose list ends the current retainer's selling
-        // session (each retainer has its own buyback). The RetainerList window closes
-        // when you enter a specific retainer and re-opens (PostSetup) when you back
-        // out to the choose list — so PostSetup while a session is active is the exact
-        // "left this retainer" signal. It does NOT fire when merely drilling into the
-        // Sell or Buyback sub-windows, so it won't end the session prematurely.
-        // Guarded by retainerSession so the initial list appearance (before any sale)
-        // doesn't trigger a save.
+        // RetainerList re-opens (PostSetup) when you back out to the retainer choose
+        // list, which is our "this retainer's session is done" signal. It doesn't
+        // fire when drilling into Sell/Buyback. Guarded by retainerSession so the
+        // initial list appearance before any sale doesn't save. See DEVNOTES for the
+        // approaches that didn't work.
         Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, RetainerListAddon, OnRetainerListReturn);
     }
 
-    /// <summary>
-    /// The retainer choose list re-appeared (PostSetup). If a retainer selling
-    /// session was active, the player backed out of that retainer, so end it.
-    /// </summary>
+    // RetainerList re-opened = backed out to the choose list, so end the session.
     private void OnRetainerListReturn(AddonEvent type, AddonArgs args)
     {
         if (retainerSession)
@@ -199,10 +142,8 @@ public sealed class ShopReader : IDisposable
 
         Refresh();
 
-        // Fire ShopOpened when the buyback view first becomes active, OR whenever a
-        // new item appears in the buyback list (count grew). The latter means that
-        // even if the user manually closed the MatheMann window, selling another
-        // item reopens it — the window should always be present on the buyback view.
+        // Reopen the window when the buyback view becomes active or a new sale grows
+        // the ledger (so reselling after a manual close brings it back).
         bool justOpened = OnBuyback && !wasOnBuyback;
         bool grew       = OnBuyback && ledger.Count > before;
 
@@ -211,8 +152,6 @@ public sealed class ShopReader : IDisposable
             wasShown = true;
             ShopOpened?.Invoke();
 
-            // Only the actual open transition counts as "opening" for one-shot
-            // effects (sound) — growth from selling another item does not.
             if (justOpened)
                 SessionOpened?.Invoke();
         }
@@ -225,10 +164,9 @@ public sealed class ShopReader : IDisposable
 
     private void OnClose(AddonEvent type, AddonArgs args)
     {
-        // Note: we deliberately do NOT clear the ledger here. The game keeps the
-        // Buyback list in memory until the player changes zones, so closing the
-        // shop window mid-session should preserve the running total. The ledger is
-        // saved to history and cleared on zone change (see EndSession).
+        // Don't clear the ledger here - the game keeps the buyback list until zone
+        // change, so closing the shop mid-session should keep the running total.
+        // Saved + cleared on zone change in EndSession.
         OnBuyback = false;
         if (wasShown)
         {
@@ -237,14 +175,9 @@ public sealed class ShopReader : IDisposable
         }
     }
 
-    // ── Core: read the shop agent and reconcile the ledger ─────────────────────
-
-    /// <summary>
-    /// Read the current Buyback list and fold it into the ledger. Both the NPC
-    /// vendor and the retainer "Item buyback" use the same "Shop" addon, so a
-    /// single AtkValues read covers both (distinguished by the view value at
-    /// index 0: 1 = NPC vendor buyback, 2 = retainer buyback).
-    /// </summary>
+    // Read the current buyback list and fold it into the ledger. NPC vendor and
+    // retainer buyback share the Shop addon; view at index 0 distinguishes them
+    // (1 = NPC, 2 = retainer).
     public unsafe void Refresh()
     {
         uint view;
@@ -254,8 +187,8 @@ public sealed class ShopReader : IDisposable
         {
             OnBuyback        = false;
             layoutLooksStale = false;
-            // If TryReadNpcShop set a warning (shop open on Current Stock), keep it;
-            // otherwise the shop is fully closed, so show the idle prompt.
+            // Keep a warning if one was set (shop open on Current Stock); otherwise
+            // the shop's fully closed so show the idle prompt.
             if (!HasWarning)
                 Status = DefaultStatus;
             return;
@@ -265,9 +198,8 @@ public sealed class ShopReader : IDisposable
 
         if (view == 2)
         {
-            // Retainer buyback window: this is the authoritative list for the
-            // current retainer session, so replace the chat-built ledger with it.
-            // This naturally drops anything that was bought back.
+            // Retainer buyback is authoritative - replace the chat-built ledger,
+            // which drops anything bought back.
             retainerSession = true;
             ledger.Clear();
             ledger.AddRange(snapshot);
@@ -294,10 +226,8 @@ public sealed class ShopReader : IDisposable
         }
     }
 
-    /// <summary>
-    /// Read the NPC vendor Buyback list from the "Shop" addon's AtkValues. Returns
-    /// null if that addon isn't open or isn't on the Buyback tab.
-    /// </summary>
+    // Reads the buyback list from the Shop addon. Null if it's closed or not on the
+    // Buyback tab.
     private unsafe List<ShopEntry>? TryReadNpcShop(out uint view)
     {
         view = 0;
@@ -454,11 +384,7 @@ public sealed class ShopReader : IDisposable
         return current.Count;
     }
 
-    /// <summary>
-    /// Read a string AtkValue's text. The String field is a CStringPointer whose
-    /// ToString() yields the UTF-8 text; we then strip the binary SeString payload
-    /// markup so only the readable item name remains.
-    /// </summary>
+    // Read a string AtkValue and strip SeString markup so only the name is left.
     private static unsafe string ReadAtkString(AtkValue value)
     {
         if (value.String.Value == null) return "?";
@@ -466,7 +392,7 @@ public sealed class ShopReader : IDisposable
         return string.IsNullOrEmpty(raw) ? "?" : CleanItemName(raw);
     }
 
-    /// <summary>Strip SeString payload markup and control bytes from an item name.</summary>
+    // Strip SeString payload markup and control bytes from an item name.
     private static string CleanItemName(string raw)
     {
         var sb = new StringBuilder(raw.Length);
@@ -495,12 +421,8 @@ public sealed class ShopReader : IDisposable
         }
     }
 
-    /// <summary>
-    /// Stamp the current character/FC onto the session, if not already captured
-    /// this session. Idempotent — safe to call on every update. Called as soon as
-    /// the ledger has its first item, while the player object is still guaranteed
-    /// valid (unlike at session end, which can coincide with a zone transition).
-    /// </summary>
+    // Stamp character/FC onto the session if not already done. Idempotent, called as
+    // soon as the ledger has an item - LocalPlayer can be null at session end (zone change).
     private void CaptureIdentity()
     {
         if (sessionCharacter != "") return;
@@ -512,12 +434,8 @@ public sealed class ShopReader : IDisposable
         sessionFreeCompany = player.CompanyTag.TextValue;
     }
 
-    /// <summary>
-    /// End the current selling session: if the ledger holds anything, return it as
-    /// a <see cref="SavedSession"/> for the history, then clear. Called on zone
-    /// change, which is when the game wipes the Buyback list. Returns null if there
-    /// was nothing to save.
-    /// </summary>
+    // End the session: return the ledger as a SavedSession (or null if empty), then
+    // clear. Called on zone change, when the game wipes the buyback list.
     public SavedSession? EndSession()
     {
         SavedSession? saved = null;

@@ -5,21 +5,10 @@ using Dalamud.Bindings.ImGui;
 
 namespace MatheMann;
 
-/// <summary>
-/// A small "Copy" button that briefly shows "Copied!" (tinted green) after being
-/// clicked, then reverts. Used in both the main window (one button) and the history
-/// window (one per session), so the confirmation state is keyed by a caller-supplied
-/// string — each distinct key tracks its own timer independently.
-///
-/// Behaviour (matches the spec for the main Copy button):
-///   • Click copies <c>textToCopy</c> to the clipboard and starts the "Copied!" state.
-///   • "Copied!" lasts <see cref="Duration"/> (5s), then the label reverts to "Copy".
-///   • The state also reverts immediately if <paramref name="changeToken"/> differs
-///     from what it was when copied — callers pass a value that changes whenever the
-///     underlying data changes (e.g. "total:count"), so a stale "Copied!" never lingers.
-///   • The button always copies on click, including while showing "Copied!", and is
-///     never disabled.
-/// </summary>
+// "Copy" button that shows "Copied!" (green) for 5s after clicking, then reverts.
+// Also reverts early if changeToken changes (so a stale total doesn't keep saying
+// Copied). Keyed by id so each button tracks its own state - used for the main total
+// and each history row. Always copies on click, never disabled.
 public static class CopyButton
 {
     private static readonly TimeSpan Duration = TimeSpan.FromSeconds(5);
@@ -33,15 +22,9 @@ public static class CopyButton
         public State(DateTime at, string token) { At = at; Token = token; }
     }
 
-    // Keyed by the caller's id so each button (main total, each history session)
-    // remembers its own "Copied!" moment independently.
     private static readonly Dictionary<string, State> states = new();
 
-    /// <param name="id">Stable unique key for this button (also used as the ImGui id).</param>
-    /// <param name="baseLabel">The normal label, e.g. "Copy" or "Copy total".</param>
-    /// <param name="textToCopy">What to put on the clipboard when clicked.</param>
-    /// <param name="changeToken">A value that changes when the underlying data does;
-    /// when it no longer matches the copied token, the "Copied!" state clears.</param>
+    // id doubles as the ImGui id. changeToken should change when the data does.
     public static void Draw(string id, string baseLabel, string textToCopy, string changeToken)
     {
         PruneExpired();
@@ -71,9 +54,7 @@ public static class CopyButton
             ImGui.PopStyleColor(3);
     }
 
-    /// <summary>Drop entries whose 5s window has passed, so buttons that stopped
-    /// being drawn (e.g. a collapsed history row) don't leave state behind. Cheap:
-    /// the dictionary only ever holds a handful of recently-clicked buttons.</summary>
+    // Drop timed-out entries so collapsed/removed buttons don't leave state behind.
     private static void PruneExpired()
     {
         if (states.Count == 0) return;

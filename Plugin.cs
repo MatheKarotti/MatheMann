@@ -10,15 +10,9 @@ using Dalamud.Plugin.Services;
 
 namespace MatheMann;
 
-/// <summary>
-/// MatheMann — sums the prices of items shown in an FFXIV vendor's shop window
-/// so the total can be copied straight into a spreadsheet. The window opens
-/// automatically on the Buyback tab and hides when the shop closes.
-///
-/// Each completed selling session (ended when the player changes zones, which is
-/// when the game wipes the Buyback list) is saved to a small history, viewable
-/// from the History button.
-/// </summary>
+// MatheMann - sums vendor buyback prices so the total can be pasted into a spreadsheet.
+// Window auto-opens on the Buyback tab. Each finished session (ends on zone change) is
+// saved to history.
 public sealed class Plugin : IDalamudPlugin
 {
     [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
@@ -104,13 +98,8 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenConfigUi += OpenSettings;
     }
 
-    /// <summary>
-    /// Handles "/mama". A bare "/mama" toggles the main window. "/mama history" and
-    /// "/mama settings" are registered as their own commands (so they each show as a
-    /// separate line in Dalamud's help list), but Dalamud routes the bare form here
-    /// with the rest as args — so we still parse the subcommand here as a fallback,
-    /// which also lets abbreviations like "/mama hist" / "/mama set" work.
-    /// </summary>
+    // history/settings are registered separately so they each get a help line, but
+    // the bare /mama also parses them here as a fallback (gives /mama hist, /mama set).
     private void OnMainCommand(string command, string args)
     {
         var word = args.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries) is { Length: > 0 } parts
@@ -160,7 +149,7 @@ public sealed class Plugin : IDalamudPlugin
         shopReader.AddChatSale(name, sale.Value.Quantity, sale.Value.Price);
     }
 
-    /// <summary>Resolve an item id to its display name via Lumina, adding the HQ mark.</summary>
+    // Item id -> display name via Lumina, plus the HQ mark.
     private static string ResolveItemName(uint itemId, bool isHq)
     {
         var sheet = DataManager.GetExcelSheet<Lumina.Excel.Sheets.Item>();
@@ -186,11 +175,8 @@ public sealed class Plugin : IDalamudPlugin
         historyWindow.OnShopClosed();
     }
 
-    /// <summary>End the current session and store it in the history. The
-    /// character + FC are already stamped by ShopReader (captured when the first
-    /// item was added, while the player object was guaranteed valid) — don't
-    /// re-stamp here, since ObjectTable.LocalPlayer can briefly be null right at
-    /// zone-change time, which is exactly when this is called.</summary>
+    // Character/FC are already stamped by ShopReader (at first item). Don't re-stamp
+    // here - LocalPlayer can be null at zone-change time, which is when this runs.
     private void SaveSession()
     {
         var session = shopReader.EndSession();

@@ -4,11 +4,8 @@ using NAudio.Wave;
 
 namespace MatheMann;
 
-/// <summary>
-/// Plays a custom MP3 (sounds/open.mp3, shipped next to the plugin DLL).
-/// Fire-and-forget; overlapping calls each get their own reader/output which is
-/// disposed when playback ends.
-/// </summary>
+// Plays sounds/open.mp3 (shipped next to the DLL). Fire-and-forget; each call gets
+// its own reader/output, disposed when playback ends.
 public static class SoundPlayer
 {
     private static string? mp3Path;
@@ -48,11 +45,7 @@ public static class SoundPlayer
         }
     }
 
-    /// <summary>
-    /// Locate open.mp3 next to the plugin assembly. Uses Dalamud's reliable
-    /// AssemblyLocation rather than Assembly.Location (which can be empty when
-    /// the plugin is loaded from a byte array).
-    /// </summary>
+    // Use AssemblyLocation, not Assembly.Location (can be empty when loaded from bytes).
     private static string? GetMp3Path()
     {
         if (pathResolved) return mp3Path;

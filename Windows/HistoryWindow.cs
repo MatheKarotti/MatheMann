@@ -6,27 +6,20 @@ using Dalamud.Interface.Windowing;
 
 namespace MatheMann;
 
-/// <summary>Shows the last few finished selling sessions, each expandable into its items.</summary>
 public sealed class HistoryWindow : Window, IDisposable
 {
     private readonly SessionHistory history;
 
-    /// <summary>
-    /// True when the window was opened via the in-shop History button, meaning it
-    /// should close together with the shop/main window (unless the user disabled
-    /// HistoryClosesWithShop). False when opened via the "/mama history" command,
-    /// meaning it stays open until the user closes it manually.
-    /// </summary>
+    // True if opened from the in-shop History button (closes with the shop, unless
+    // HistoryClosesWithShop is off). False if opened via /mama history (stays open).
     public bool TiedToShop { get; private set; }
 
-    /// <summary>Open docked to the main window, tied to the shop session.</summary>
     public void OpenFromButton()
     {
         TiedToShop = true;
         IsOpen     = true;
     }
 
-    /// <summary>Toggle as a standalone window that stays open until closed manually.</summary>
     public void ToggleStandalone()
     {
         if (IsOpen)
@@ -40,18 +33,13 @@ public sealed class HistoryWindow : Window, IDisposable
         }
     }
 
-    /// <summary>Called when the shop/main window closes; hides only if shop-tied
-    /// and the user hasn't opted to keep it pinned open.</summary>
     public void OnShopClosed()
     {
         if (TiedToShop && history.HistoryClosesWithShop)
             IsOpen = false;
     }
 
-    /// <summary>
-    /// Horizontal offset from the Shop window's right edge. Negative pulls the
-    /// window left so it overlaps the shop's gold border slightly.
-    /// </summary>
+    // Negative so the window overlaps the shop's gold border a bit.
     private const float AnchorGap = -9f;
 
     private static readonly Vector4 Gold   = new(1.00f, 0.85f, 0.20f, 1f);
@@ -110,18 +98,15 @@ public sealed class HistoryWindow : Window, IDisposable
 
         ImGui.Separator();
 
-        // Reserve space for the grand-total footer so it stays pinned below the
-        // scrolling list. The footer is: a separator + "Total:" + one line per
-        // distinct character + "Grand total:". Count the distinct characters so the
-        // reserved height matches however many there are (a fixed guess overlaps the
-        // list once there's more than one or two characters).
+        // Reserve room for the footer (separator + "Total:" + one line per character
+        // + "Grand total:") so it stays pinned below the scrolling list. A fixed
+        // guess overlaps the list once there's more than a character or two.
         var footerHeight = 0f;
         if (history.ShowGrandTotal)
         {
             var characterCount = CountDistinctCharacters();
             var lineH = ImGui.GetTextLineHeightWithSpacing();
-            // lines: "Total:" + N characters + "Grand total:"  (= N + 2)
-            footerHeight = lineH * (characterCount + 2)
+            footerHeight = lineH * (characterCount + 2)   // "Total:" + N + "Grand total:"
                          + ImGui.GetStyle().ItemSpacing.Y
                          + ImGui.GetStyle().FramePadding.Y * 2;
         }
@@ -145,10 +130,8 @@ public sealed class HistoryWindow : Window, IDisposable
 
             if (open)
             {
-                // Copy this session's total. Lives inside the expanded section so it
-                // never overlaps (and accidentally toggles) the collapsing header.
-                // Keyed by the session's timestamp+total so each row's "Copied!"
-                // state is independent and stable even if the list is trimmed.
+                // Inside the expanded section so it can't toggle the header. Keyed
+                // by timestamp+total so each row's Copied state is stable across trims.
                 CopyButton.Draw(
                     id: $"session{s.EndedAt.Ticks}_{s.TotalGil}",
                     baseLabel: "Copy total",
@@ -167,15 +150,12 @@ public sealed class HistoryWindow : Window, IDisposable
         ImGui.SetWindowFontScale(1f);
     }
 
-    /// <summary>The display key used to group sessions by character in the footer.
-    /// Shared so the reserved footer height (CountDistinctCharacters) and the drawn
-    /// footer (DrawGrandTotal) always agree on how many lines there are.</summary>
+    // Shared so the reserved footer height and the drawn footer agree on line count.
     private static string CharacterKey(SavedSession s) =>
         string.IsNullOrEmpty(s.Character) ? "Unknown character"
         : string.IsNullOrEmpty(s.FreeCompany) ? s.Character
         : $"{s.Character}  «{s.FreeCompany}»";
 
-    /// <summary>How many distinct characters appear across all stored sessions.</summary>
     private int CountDistinctCharacters()
     {
         var seen = new HashSet<string>();
@@ -184,10 +164,7 @@ public sealed class HistoryWindow : Window, IDisposable
         return seen.Count;
     }
 
-    /// <summary>
-    /// Footer: the total gil earned across all stored sessions, broken down by
-    /// character. Shown only when the "Show grand total" setting is on.
-    /// </summary>
+    // Total across all sessions, by character. Only when ShowGrandTotal is on.
     private void DrawGrandTotal()
     {
         ImGui.Separator();
@@ -216,7 +193,6 @@ public sealed class HistoryWindow : Window, IDisposable
         RightAlignedToEnd(FormatGil(grand) + " gil", Gold);
     }
 
-    /// <summary>Draw text right-aligned to the window's right edge on the current line.</summary>
     private static void RightAlignedToEnd(string text, Vector4 colour)
     {
         var avail = ImGui.GetContentRegionAvail().X;

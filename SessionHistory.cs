@@ -5,7 +5,6 @@ using Dalamud.Plugin;
 
 namespace MatheMann;
 
-/// <summary>One finished selling session: when it ended, and what was in the ledger.</summary>
 [Serializable]
 public sealed class SavedSession
 {
@@ -17,7 +16,6 @@ public sealed class SavedSession
     public List<SavedItem> Items { get; set; } = new();
 }
 
-/// <summary>A single line within a saved session.</summary>
 [Serializable]
 public sealed class SavedItem
 {
@@ -26,67 +24,37 @@ public sealed class SavedItem
     public uint   Price    { get; set; }
 }
 
-/// <summary>
-/// Persisted plugin state: the last N finished selling sessions. Stored through
-/// Dalamud's plugin-config mechanism so it survives game restarts.
-/// </summary>
+// Persisted config + the last N sessions, stored via Dalamud's plugin config.
 [Serializable]
 public sealed class SessionHistory : IPluginConfiguration
 {
-    /// <summary>Most-recent session first.</summary>
-    public List<SavedSession> Sessions { get; set; } = new();
+    public List<SavedSession> Sessions { get; set; } = new();   // newest first
 
-    /// <summary>Glue the MatheMann windows to the relevant in-game window. Off by default.</summary>
     public bool GlueToGameWindows { get; set; }
-
-    /// <summary>Play the open.mp3 sound when the buyback view opens. Off by default.</summary>
     public bool PlaySound { get; set; }
-
-    /// <summary>Group identical items into one row. On by default.</summary>
     public bool GroupItems { get; set; } = true;
 
-    /// <summary>
-    /// How the Copy buttons format numbers on the clipboard. Defaults to German
-    /// (dot thousands separator) to match the on-screen display.
-    /// </summary>
-    public GilFormat CopyFormat { get; set; } = GilFormat.German;
-
-    /// <summary>
-    /// How gil numbers are formatted in the on-screen tables and totals (separate
-    /// from <see cref="CopyFormat"/>, which only affects clipboard text). Defaults
-    /// to German to match the plugin's original behaviour.
-    /// </summary>
+    // Display = on-screen, Copy = clipboard. Kept separate because Sheets parses by
+    // locale, so the wrong separator on paste breaks totals by 1000x.
+    public GilFormat CopyFormat    { get; set; } = GilFormat.German;
     public GilFormat DisplayFormat { get; set; } = GilFormat.German;
 
-    /// <summary>
-    /// Show the grand-total footer (broken down by character) at the bottom of the
-    /// history window. On by default. Clearing history is the only way to reset
-    /// the total now — there's no separate reset button.
-    /// </summary>
     public bool ShowGrandTotal { get; set; } = true;
 
-    /// <summary>
-    /// When the history window is opened from the in-shop "History" button, close it
-    /// again automatically when the shop/main window closes. On by default — turn it
-    /// off to keep the history window pinned open across shop visits. (The
-    /// "/mama history" command always opens it standalone regardless of this.)
-    /// </summary>
+    // Only applies when history was opened from the in-shop button; /mama history
+    // always opens standalone.
     public bool HistoryClosesWithShop { get; set; } = true;
 
-    /// <summary>UI scale for the MatheMann windows (1.0 = normal). 0.7–2.0.</summary>
-    public float WindowScale { get; set; } = 1.0f;
-
-    /// <summary>Window background opacity (1.0 = opaque). 0.3–1.0.</summary>
+    public float WindowScale   { get; set; } = 1.0f;
     public float WindowOpacity { get; set; } = 1.0f;
+    public bool  ShowRawTotal  { get; set; }
+    public int   MaxSessions   { get; set; } = 10;
 
-    /// <summary>
-    /// Show the raw, unformatted gil value in parentheses next to the main total
-    /// (e.g. "6.890 (6890)"). Useful for debugging; off by default for a cleaner look.
-    /// </summary>
-    public bool ShowRawTotal { get; set; }
+    // Extra "Unit" column showing per-item price (total / qty). On by default.
+    public bool ShowUnitPrice { get; set; } = true;
 
-    /// <summary>How many finished sessions to keep before the oldest drops off.</summary>
-    public int MaxSessions { get; set; } = 10;
+    // Sort the table by price (most valuable first) instead of sell order. On by default.
+    public bool SortByValue { get; set; } = true;
 
     public int Version { get; set; }
 
@@ -94,7 +62,6 @@ public sealed class SessionHistory : IPluginConfiguration
 
     public void Initialize(IDalamudPluginInterface pi) => pluginInterface = pi;
 
-    /// <summary>Add a finished session to the front and trim to the cap.</summary>
     public void Add(SavedSession session)
     {
         Sessions.Insert(0, session);
@@ -102,7 +69,6 @@ public sealed class SessionHistory : IPluginConfiguration
         Save();
     }
 
-    /// <summary>Drop sessions beyond the configured cap (oldest first).</summary>
     public void Trim()
     {
         var cap = Math.Max(1, MaxSessions);
