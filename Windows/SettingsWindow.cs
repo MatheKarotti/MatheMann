@@ -53,9 +53,6 @@ public sealed class SettingsWindow : Window, IDisposable
         Toggle("Show unit price", config.ShowUnitPrice, v => config.ShowUnitPrice = v,
             "Adds a column showing the price per single item.");
 
-        Toggle("Sort by value", config.SortByValue, v => config.SortByValue = v,
-            "Sorts the table by price, most valuable first, instead of the order you sold in.");
-
         Divider();
 
         // ── Appearance ───────────────────────────────────────────────────────────

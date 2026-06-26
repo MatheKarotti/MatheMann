@@ -50,11 +50,11 @@ public sealed class SessionHistory : IPluginConfiguration
     public bool  ShowRawTotal  { get; set; }
     public int   MaxSessions   { get; set; } = 10;
 
-    // Extra "Unit" column showing per-item price (total / qty). On by default.
+    // Extra "Unit Price" column showing per-item price (total / qty). On by default.
     public bool ShowUnitPrice { get; set; } = true;
 
-    // Sort the table by price (most valuable first) instead of sell order. On by default.
-    public bool SortByValue { get; set; } = true;
+    // How the main-window ledger is ordered. Defaults to highest line total first.
+    public LedgerSort Sort { get; set; } = LedgerSort.TotalDesc;
 
     public int Version { get; set; }
 

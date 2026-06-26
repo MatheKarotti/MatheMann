@@ -24,7 +24,7 @@ public sealed class MainWindow : Window, IDisposable
     private static readonly Vector4 Header = new(0.80f, 0.80f, 0.80f, 1f);
 
     private const float QtyColWidth   = 55f;
-    private const float PriceColWidth = 100f;
+    private const float PriceColWidth = 110f;
 
     // Horizontal offset from the Shop window. Negative = overlap into the shop
     // (moves the plugin window right, closer to the shop). Positive = gap.
@@ -92,11 +92,27 @@ public sealed class MainWindow : Window, IDisposable
             return;
         }
 
+        DrawSortRow();
         DrawTable();
         ImGui.Separator();
         DrawTotalRow();
 
         ImGui.SetWindowFontScale(1f);
+    }
+
+    private void DrawSortRow()
+    {
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextColored(Muted, "Sort");
+        ImGui.SameLine();
+
+        var idx = (int)config.Sort;
+        ImGui.SetNextItemWidth(180f);
+        if (ImGui.Combo("##ledgerSort", ref idx, LedgerSortInfo.Labels, LedgerSortInfo.Labels.Length))
+        {
+            config.Sort = (LedgerSort)idx;
+            config.Save();
+        }
     }
 
     // ── Sections ──────────────────────────────────────────────────────────────
@@ -156,8 +172,8 @@ public sealed class MainWindow : Window, IDisposable
             ImGui.TableSetupColumn("Item",  ImGuiTableColumnFlags.WidthStretch);
             ImGui.TableSetupColumn("Qty",   ImGuiTableColumnFlags.WidthFixed, QtyColWidth);
             if (showUnit)
-                ImGui.TableSetupColumn("Unit", ImGuiTableColumnFlags.WidthFixed, PriceColWidth);
-            ImGui.TableSetupColumn("Price", ImGuiTableColumnFlags.WidthFixed, PriceColWidth);
+                ImGui.TableSetupColumn("Unit Price", ImGuiTableColumnFlags.WidthFixed, PriceColWidth);
+            ImGui.TableSetupColumn("Total", ImGuiTableColumnFlags.WidthFixed, PriceColWidth);
 
             ImGui.TableNextRow(ImGuiTableRowFlags.Headers);
             var col = 0;
@@ -165,9 +181,9 @@ public sealed class MainWindow : Window, IDisposable
             ImGui.TableSetColumnIndex(col++); RightAligned("Qty", QtyColWidth, Header);
             if (showUnit)
             {
-                ImGui.TableSetColumnIndex(col++); RightAligned("Unit", PriceColWidth, Header);
+                ImGui.TableSetColumnIndex(col++); RightAligned("Unit Price", PriceColWidth, Header);
             }
-            ImGui.TableSetColumnIndex(col); RightAligned("Price", PriceColWidth, Header);
+            ImGui.TableSetColumnIndex(col); RightAligned("Total", PriceColWidth, Header);
 
             foreach (var row in GetRows())
             {
@@ -193,7 +209,7 @@ public sealed class MainWindow : Window, IDisposable
     // Raw ledger, or (when grouping is on) same-name rows merged with summed qty/gil.
     // Group by name only, not price - the game splits big sales into rows capped at
     // 999, so name+price would wrongly split them. HQ keeps its symbol so it stays
-    // separate. Order follows first appearance, unless SortByValue is on.
+    // separate. Order follows first appearance, then the chosen sort is applied.
     private IEnumerable<ShopEntry> GetRows()
     {
         IEnumerable<ShopEntry> rows;
@@ -225,10 +241,15 @@ public sealed class MainWindow : Window, IDisposable
             });
         }
 
-        // Most valuable first. By line total, not unit price - "what was the big
-        // chunk of this haul" is the line total.
-        if (config.SortByValue)
-            rows = rows.OrderByDescending(r => r.Price);
+        // Apply the chosen sort. Unit price = line total / quantity (guard qty 0).
+        rows = config.Sort switch
+        {
+            LedgerSort.TotalDesc => rows.OrderByDescending(r => r.Price),
+            LedgerSort.TotalAsc  => rows.OrderBy(r => r.Price),
+            LedgerSort.UnitDesc  => rows.OrderByDescending(r => r.Quantity > 0 ? r.Price / r.Quantity : r.Price),
+            LedgerSort.UnitAsc   => rows.OrderBy(r => r.Quantity > 0 ? r.Price / r.Quantity : r.Price),
+            _                     => rows,   // SellOrder: leave as-is
+        };
 
         return rows;
     }
